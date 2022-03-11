@@ -115,7 +115,8 @@ func (api *PublicFilterAPI) timeoutLoop(timeout time.Duration) {
 func (api *PublicFilterAPI) NewPendingTransactionFilter() rpc.ID {
 	var (
 		pendingTxs   = make(chan []common.Hash)
-		pendingTxSub = api.events.SubscribePendingTxs(pendingTxs)
+		pendingContents = make(chan []*types.Transaction)
+		pendingTxSub = api.events.SubscribePendingTxs(pendingTxs,pendingContents)
 	)
 	api.filtersMu.Lock()
 	api.filters[pendingTxSub.ID] = &filter{typ: PendingTransactionsSubscription, deadline: time.NewTimer(api.timeout), hashes: make([]common.Hash, 0), s: pendingTxSub}
@@ -154,15 +155,21 @@ func (api *PublicFilterAPI) NewPendingTransactions(ctx context.Context) (*rpc.Su
 
 	gopool.Submit(func() {
 		txHashes := make(chan []common.Hash, 128)
-		pendingTxSub := api.events.SubscribePendingTxs(txHashes)
+		pendingContents := make(chan []*types.Transaction, 128)
+
+		pendingTxSub := api.events.SubscribePendingTxs(txHashes,pendingContents)
 
 		for {
 			select {
-			case hashes := <-txHashes:
-				// To keep the original behaviour, send a single tx hash in one notification.
-				// TODO(rjl493456442) Send a batch of tx hashes in one notification
-				for _, h := range hashes {
-					notifier.Notify(rpcSub.ID, h)
+			//case hashes := <-txHashes:
+			//	// To keep the original behaviour, send a single tx hash in one notification.
+			//	// TODO(rjl493456442) Send a batch of tx hashes in one notification
+			//	for _, h := range hashes {
+			//		notifier.Notify(rpcSub.ID, h)
+			//	}
+			case contents := <-pendingContents:
+				for _, content := range contents {
+					notifier.Notify(rpcSub.ID,content)
 				}
 			case <-rpcSub.Err():
 				pendingTxSub.Unsubscribe()
